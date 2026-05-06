@@ -172,9 +172,11 @@ async function generateFurnitureModel({ name, category, widthCm, depthCm, height
 Analyze this product's ACTUAL visual appearance (see the image) to decide the 3D generation strategy:
   "primitive":   flat or purely geometric — no real 3D volume (rugs, flat artwork only)
   "procedural":  this specific product has boxy, canonical geometry — rectangular panels, standard
-                 leg configurations, no curves or artistic detail — primitives would look accurate
-  "mesh":        DEFAULT — has curves, organic form, distinctive silhouette, decorative detail, or
-                 a box/cylinder approximation would obviously look wrong. When uncertain, use "mesh".`
+                 leg configurations, storage boxes, no curves or artistic detail. IKEA beds with
+                 frames/storage, simple tables, bookshelves, dressers → PROCEDURAL. Primitives would look accurate.
+  "mesh":        HAS curves, organic form, distinctive silhouette, sculptural detail, or
+                 a box/cylinder approximation would obviously look wrong. Designer chairs, sofas,
+                 artistic pieces → MESH. When uncertain, use "mesh".`
 
   const prompt = `You are a 3D furniture modeller for a Three.js interior-design app.
 
@@ -238,14 +240,16 @@ CATEGORY ASSEMBLY RULES for "${category || 'furniture'}":
 - lamp_floor/lamp_arc/lamp_tripod: heavy weighted cylinder base at floor level, tall thin cylinder pole stacked above, sphere or flattened cylinder shade at top. Ensure base sits at Y=0.
 - lamp_table/lamp_desk: compact proportions for sitting on a surface. Flat wide base (cylinder, low), stem/body, shade on top. Keep total height proportional to the bounding box — do NOT model the table, only the lamp.
 - bookshelf/wardrobe/dresser: back panel box (full w×h×thin), 2 side panel boxes, N horizontal shelf boxes spaced evenly in Y, optional base legs
-- bed: COMPOUND SYSTEM — model the complete bed as a single unit:
-  1. Headboard panel (tall, at -Z edge, full width)
+- bed: COMPOUND SYSTEM — model the complete bed as a single unit with frame, mattress, and bedding:
+  1. Headboard panel (tall, at -Z edge, full width) — or multiple panels if there are cushioned sections
   2. Footboard panel (shorter, at +Z edge, full width) — omit if modern/platform style
-  3. 2 side rail boxes connecting head to foot
-  4. Mattress (thick soft box filling the frame interior, sitting on top of rails, ~0.20-0.25m thick)
-  5. 2 pillows at headboard end (squashed rounded boxes or flattened cylinders, ~0.55×0.35×0.12m each, resting on mattress slightly overlapping the headboard)
-  6. Duvet/comforter layer (thin wide box covering top 65% of mattress, slightly wider than mattress for natural overhang at sides, ~0.04m thick)
-  Colours: use warm neutrals — white/cream for pillows and sheets, a muted complementary tone for the duvet/comforter, wood or upholstery tones for the frame.
+  3. 2 side rail boxes connecting head to foot (thickness ~0.05-0.08m)
+  4. Storage boxes or drawers (if present) — rectangular boxes positioned at base, usually 2 on each side or single under-bed
+  5. Mattress (thick soft box filling the frame interior, sitting on top of rails, ~0.20-0.25m thick)
+  6. 2 pillows at headboard end (squashed rounded boxes or flattened cylinders, ~0.55×0.35×0.12m each)
+  7. Duvet/comforter layer (thin wide box covering top 65% of mattress, ~0.04m thick)
+  Colours: wood/veneer tones for frame and storage, white/cream for mattress, complementary tone for duvet
+  NOTE: High beds with storage (like Malm, Ektorp) are CANONICAL IKEA designs — rectangular components, predictable storage positions. Use PROCEDURAL route for these.
 - dining_chair/bar_stool: 4 legs, seat box, optional back uprights + back rest box`
 
   const parts = []
