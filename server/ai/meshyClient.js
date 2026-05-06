@@ -46,23 +46,32 @@ async function createMeshTask({ name, category, widthCm, depthCm, heightCm, colo
  */
 async function pollMeshTask(taskId) {
   const deadline = Date.now() + TIMEOUT_MS
+  let pollCount = 0
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS))
-    const res = await axios.get(`${BASE_URL}/text-to-3d/${taskId}`, {
-      headers: authHeaders(),
-      timeout: 10000,
-    })
-    const { status, model_urls, task_error } = res.data
-    if (status === 'SUCCEEDED') {
-      if (!model_urls?.glb) throw new Error('Meshy task succeeded but no GLB URL returned')
-      return { glbUrl: model_urls.glb }
+    pollCount++
+    try {
+      const res = await axios.get(`${BASE_URL}/text-to-3d/${taskId}`, {
+        headers: authHeaders(),
+        timeout: 10000,
+      })
+      const { status, model_urls, task_error } = res.data
+      console.log(`[Meshy] Poll #${pollCount} status: ${status}`)
+      if (status === 'SUCCEEDED') {
+        if (!model_urls?.glb) throw new Error('Meshy task succeeded but no GLB URL returned')
+        console.log(`[Meshy] ✓ Task ${taskId.slice(0, 8)}... succeeded after ${pollCount} polls`)
+        return { glbUrl: model_urls.glb }
+      }
+      if (status === 'FAILED') {
+        throw new Error(`Meshy task failed: ${task_error?.message || 'unknown error'}`)
+      }
+      // PENDING / IN_PROGRESS — keep polling
+    } catch (err) {
+      console.error(`[Meshy] Poll #${pollCount} error:`, err.message)
+      throw err
     }
-    if (status === 'FAILED') {
-      throw new Error(`Meshy task failed: ${task_error?.message || 'unknown error'}`)
-    }
-    // PENDING / IN_PROGRESS — keep polling
   }
-  throw new Error('Meshy task timed out after 3 minutes')
+  throw new Error(`Meshy task timed out after 3 minutes (${pollCount} polls)`)
 }
 
 /**

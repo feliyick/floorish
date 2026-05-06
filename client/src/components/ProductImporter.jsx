@@ -180,6 +180,7 @@ export default function ProductImporter({ onClose }) {
           resolveGeneratedModel(productId, components)
         } else {
           // ── Step 2: Route to Meshy AI for organic/complex assets ──
+          console.log(`[Meshy] Initiating mesh generation for "${productData.name}" (strategy: mesh)`)
           try {
             const meshRes = await axios.post('/api/generate-mesh', {
               name:     productData.name,
@@ -190,9 +191,12 @@ export default function ProductImporter({ onClose }) {
               color:    productData.color,
               material: productData.material,
             })
+            console.log(`[Meshy] ✓ Mesh URL received for "${productData.name}"`)
             resolveMeshUrl(productId, meshRes.data.meshUrl)
           } catch (meshErr) {
-            console.warn('Meshy generation failed, falling back to procedural:', meshErr.message)
+            const errorMsg = meshErr.response?.data?.error || meshErr.message
+            console.error(`[Meshy] ✗ Mesh generation failed for "${productData.name}": ${errorMsg}`)
+            console.warn(`[Meshy] Falling back to procedural generation (forceProcedural: true)`)
             // Fallback: re-ask Gemini but force procedural components
             try {
               const fallbackRes = await axios.post('/api/generate-model', {
@@ -206,8 +210,10 @@ export default function ProductImporter({ onClose }) {
                 imageUrl:      productData.imageUrl,
                 forceProcedural: true,
               })
+              console.log(`[Meshy] ✓ Fallback procedural generation succeeded for "${productData.name}"`)
               resolveGeneratedModel(productId, fallbackRes.data.components)
-            } catch {
+            } catch (fallbackErr) {
+              console.error(`[Meshy] ✗ Fallback procedural generation also failed:`, fallbackErr.message)
               resolveGeneratedModel(productId, null)
             }
           }
