@@ -93,14 +93,14 @@ const useStore = create(
           priceUSD:        product.priceUSD  || null,
           modelComponents: product.modelComponents || null,
           sourceProductId: product.modelGenerating ? productId : null,
-          // Asset creation metadata — set once on placement, updated when server responds
-          geometryType:      'primitive',   // overwritten by server routing decision
-          meshUrl:           null,
+          // Asset creation metadata — carry over from product if generation already finished
+          geometryType:      product.geometryType || 'primitive',
+          meshUrl:           product.meshUrl || null,
           compatibilityTags: getCompatibilityTags(category),
           semanticSize:      category === 'bed'
             ? detectBedSize(product.name, product.widthCm)
             : null,
-          generationMeta:    null,          // filled in by ProductImporter from server response
+          generationMeta:    product.generationMeta || null,
         }
 
         // Smart placement: put lamps/vases/etc. on the nearest suitable surface
