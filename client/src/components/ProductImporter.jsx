@@ -158,6 +158,8 @@ export default function ProductImporter({ onClose }) {
     // ── Step 1: Ask Gemini to route + optionally generate primitive components ──
     // Fire-and-forget — does not block the user.
     ;(async () => {
+      console.log(`[Generate] Firing model generation for "${productData.name}" (${productData.category})`)
+      console.log(`[Generate]   imageUrl: ${productData.imageUrl ? 'yes' : 'no'}`)
       try {
         const res = await axios.post('/api/generate-model', {
           name:     productData.name,
