@@ -169,14 +169,19 @@ async function generateFurnitureModel({ name, category, widthCm, depthCm, height
   const routingSection = forceProcedural
     ? 'ROUTING OVERRIDE: strategy = "procedural" — skip routing analysis, always generate components.'
     : `── ROUTING DECISION ──────────────────────────────────────────────────────────
-Analyze this product's ACTUAL visual appearance (see the image) to decide the 3D generation strategy:
-  "primitive":   flat or purely geometric — no real 3D volume (rugs, flat artwork only)
-  "procedural":  this specific product has boxy, canonical geometry — rectangular panels, standard
-                 leg configurations, storage boxes, no curves or artistic detail. IKEA beds with
-                 frames/storage, simple tables, bookshelves, dressers → PROCEDURAL. Primitives would look accurate.
-  "mesh":        HAS curves, organic form, distinctive silhouette, sculptural detail, or
-                 a box/cylinder approximation would obviously look wrong. Designer chairs, sofas,
-                 artistic pieces → MESH. When uncertain, use "mesh".`
+Look at the product image carefully. Your job is to decide whether THIS SPECIFIC product can be
+accurately represented using simple geometric primitives (boxes, cylinders, spheres, tori), or
+whether it needs a full 3D mesh to look right.
+
+Ask yourself: "If I build this from rectangular boxes and cylinders, will a person recognize it
+as this product?" If yes → procedural. If the shape has curves, organic forms, sculptural details,
+or distinctive silhouette that boxes cannot capture → mesh.
+
+  "primitive":   flat or purely geometric — no real 3D volume (rugs, flat wall art only)
+  "procedural":  the surfaces and edges you see in the image are mostly flat planes, right angles,
+                 and straight lines. Boxes and cylinders can faithfully reproduce the shape.
+  "mesh":        the image shows curves, organic forms, sculpted surfaces, tapered profiles, or
+                 visual details that would be lost if approximated with boxes. DEFAULT when uncertain.`
 
   const prompt = `You are a 3D furniture modeller for a Three.js interior-design app.
 
@@ -244,12 +249,11 @@ CATEGORY ASSEMBLY RULES for "${category || 'furniture'}":
   1. Headboard panel (tall, at -Z edge, full width) — or multiple panels if there are cushioned sections
   2. Footboard panel (shorter, at +Z edge, full width) — omit if modern/platform style
   3. 2 side rail boxes connecting head to foot (thickness ~0.05-0.08m)
-  4. Storage boxes or drawers (if present) — rectangular boxes positioned at base, usually 2 on each side or single under-bed
+  4. Storage boxes or drawers (if visible in the image) — rectangular boxes positioned at base
   5. Mattress (thick soft box filling the frame interior, sitting on top of rails, ~0.20-0.25m thick)
   6. 2 pillows at headboard end (squashed rounded boxes or flattened cylinders, ~0.55×0.35×0.12m each)
   7. Duvet/comforter layer (thin wide box covering top 65% of mattress, ~0.04m thick)
-  Colours: wood/veneer tones for frame and storage, white/cream for mattress, complementary tone for duvet
-  NOTE: High beds with storage (like Malm, Ektorp) are CANONICAL IKEA designs — rectangular components, predictable storage positions. Use PROCEDURAL route for these.
+  Colours: use colours from the image — frame, mattress, and bedding should have distinct tones
 - dining_chair/bar_stool: 4 legs, seat box, optional back uprights + back rest box`
 
   const parts = []
