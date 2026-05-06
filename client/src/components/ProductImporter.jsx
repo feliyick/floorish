@@ -172,14 +172,22 @@ export default function ProductImporter({ onClose }) {
 
         const { strategy, confidenceReason, fallbackChain, components } = res.data
 
+        console.log(`[Route] Model generation response for "${productData.name}":`)
+        console.log(`[Route]   Strategy: ${strategy}`)
+        console.log(`[Route]   Reason: ${confidenceReason}`)
+        console.log(`[Route]   Fallback chain: ${fallbackChain.join(' → ')}`)
+        console.log(`[Route]   Components: ${components ? components.length + ' shapes' : 'none'}`)
+
         // Store routing metadata on the product (may already be placed in scene)
         updateProduct(productId, { geometryType: strategy, generationMeta: { confidenceReason, fallbackChain } })
 
         if (strategy !== 'mesh') {
           // Primitive or procedural — components are ready
+          console.log(`[Route] ✓ Using ${strategy} strategy, rendering ${components?.length || 0} components`)
           resolveGeneratedModel(productId, components)
         } else {
           // ── Step 2: Route to Meshy AI for organic/complex assets ──
+          console.log(`[Route] Strategy is "mesh" — routing to Meshy AI for high-fidelity generation`)
           console.log(`[Meshy] Initiating mesh generation for "${productData.name}" (strategy: mesh)`)
           try {
             const meshRes = await axios.post('/api/generate-mesh', {

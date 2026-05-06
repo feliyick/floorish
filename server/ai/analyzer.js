@@ -283,11 +283,21 @@ CATEGORY ASSEMBLY RULES for "${category || 'furniture'}":
       parsed = JSON.parse(match[0])
     }
     const routing = parsed.routing || {}
+    const strategy = routing.strategy || 'procedural'
+    const reason = routing.confidence_reason || ''
+    const fallback = routing.fallback_chain || ['procedural']
+    const components = parsed.components || null
+
+    console.log(`[Analyzer] Routing response: strategy="${strategy}"`)
+    console.log(`[Analyzer]   Reason: ${reason}`)
+    console.log(`[Analyzer]   Fallback: ${fallback.join(' → ')}`)
+    console.log(`[Analyzer]   Component count: ${components ? components.length : 'none (will request Meshy)'}`)
+
     return {
-      strategy:         routing.strategy         || 'procedural',
-      confidenceReason: routing.confidence_reason || '',
-      fallbackChain:    routing.fallback_chain    || ['procedural'],
-      components:       parsed.components         || null,
+      strategy,
+      confidenceReason: reason,
+      fallbackChain: fallback,
+      components,
     }
   })
 }
