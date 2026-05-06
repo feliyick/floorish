@@ -30,13 +30,18 @@ function GeneratingRing({ width, depth, height }) {
 // Loads a GLB asset from meshUrl and scales it to fit the item's bounding box.
 // Must be a separate component so useGLTF is always called unconditionally.
 function MeshAsset({ item }) {
-  const { scene } = useGLTF(item.meshUrl)
+  console.log(`[GLB] Loading mesh for "${item.name}" from:`, item.meshUrl?.slice(0, 80) + '...')
+  const gltf = useGLTF(item.meshUrl)
+  const { scene } = gltf
+
   const cloned = useMemo(() => {
     const c = scene.clone(true)
     const box = new THREE.Box3().setFromObject(c)
     const size = box.getSize(new THREE.Vector3())
+    console.log(`[GLB] Mesh loaded, bounding box size:`, { x: size.x.toFixed(3), y: size.y.toFixed(3), z: size.z.toFixed(3) })
     if (size.x > 0 && size.y > 0 && size.z > 0) {
       c.scale.set(item.widthM / size.x, item.heightM / size.y, item.depthM / size.z)
+      console.log(`[GLB] Scaled to item dimensions: ${item.widthM.toFixed(2)}×${item.heightM.toFixed(2)}×${item.depthM.toFixed(2)}m`)
     }
     c.traverse((child) => {
       if (child.isMesh) {
@@ -46,6 +51,7 @@ function MeshAsset({ item }) {
     })
     return c
   }, [scene, item.widthM, item.heightM, item.depthM])
+
   return <primitive object={cloned} />
 }
 
@@ -65,6 +71,16 @@ export default function FurnitureItem({ item, onMount, onDragStart }) {
   const selectedId  = useStore((s) => s.selectedId)
   const setSelected = useStore((s) => s.setSelected)
   const isSelected  = selectedId === item.id
+
+  // Debug logging
+  useEffect(() => {
+    if (item.meshUrl) {
+      console.log(`[FurnitureItem] "${item.name}" now has meshUrl set, should render GLB instead of placeholder`)
+    }
+    if (item.sourceProductId) {
+      console.log(`[FurnitureItem] "${item.name}" still generating (sourceProductId: ${item.sourceProductId.slice(0, 8)}...)`)
+    }
+  }, [item.meshUrl, item.sourceProductId, item.name])
 
   // Rebuild primitive geometry when AI components arrive (componentCount goes from 0 → N).
   // Not used when item.meshUrl is set (GLB path), but useMemo must run unconditionally.
