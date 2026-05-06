@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { v4 as uuid } from 'uuid'
+import { findSurfacePlacement } from '../utils/placementUtils'
+import { getCompatibilityTags, detectBedSize } from '../utils/assetRouter'
 
 const DEFAULT_WALLS = [
   { id: 'w1', x1: 2,  y1: 2,  x2: 22, y2: 2  },
@@ -71,12 +73,14 @@ const useStore = create(
         set((s) => ({ products: s.products.filter((p) => p.id !== id) })),
 
       placeProduct: (productId) => {
-        const { products, addFurniture, removeProduct } = get()
+        const { products, furniture, addFurniture, removeProduct } = get()
         const product = products.find((p) => p.id === productId)
         if (!product) return
-        addFurniture({
+
+        const category = product.category || 'generic'
+        const newItem = {
           name:            product.name,
-          category:        product.category || 'generic',
+          category,
           position:        [0, 0, 0],
           rotation:        0,
           widthM:          product.widthCm  ? product.widthCm  / 100 : 1,
@@ -88,10 +92,22 @@ const useStore = create(
           sourceUrl:       product.url       || null,
           priceUSD:        product.priceUSD  || null,
           modelComponents: product.modelComponents || null,
-          // Track origin so resolveGeneratedModel can patch this furniture item
-          // if it was placed before the AI call finished.
           sourceProductId: product.modelGenerating ? productId : null,
-        })
+          // Asset creation metadata — set once on placement, updated when server responds
+          geometryType:      'primitive',   // overwritten by server routing decision
+          meshUrl:           null,
+          compatibilityTags: getCompatibilityTags(category),
+          semanticSize:      category === 'bed'
+            ? detectBedSize(product.name, product.widthCm)
+            : null,
+          generationMeta:    null,          // filled in by ProductImporter from server response
+        }
+
+        // Smart placement: put lamps/vases/etc. on the nearest suitable surface
+        const surface = findSurfacePlacement(newItem, furniture)
+        if (surface) newItem.position = surface.position
+
+        addFurniture(newItem)
         removeProduct(productId)
       },
 
@@ -108,6 +124,23 @@ const useStore = create(
           furniture: s.furniture.map((f) =>
             f.sourceProductId === productId
               ? { ...f, modelComponents: components ?? null, sourceProductId: null }
+              : f
+          ),
+        }))
+      },
+
+      // Called when Meshy AI finishes generating a GLB mesh for a product.
+      // Sets meshUrl on both the product (if still in library) and any placed furniture.
+      resolveMeshUrl: (productId, meshUrl) => {
+        set((s) => ({
+          products: s.products.map((p) =>
+            p.id === productId
+              ? { ...p, meshUrl, modelGenerating: false }
+              : p
+          ),
+          furniture: s.furniture.map((f) =>
+            f.sourceProductId === productId
+              ? { ...f, meshUrl, sourceProductId: null }
               : f
           ),
         }))

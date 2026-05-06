@@ -161,19 +161,30 @@ Rules:
  * @param {{ name, category, widthCm, depthCm, heightCm, color, material, imageUrl }} product
  * @returns {Promise<Array>} components array for furnitureFactory renderer
  */
-async function generateFurnitureModel({ name, category, widthCm, depthCm, heightCm, color, material, imageUrl }) {
+async function generateFurnitureModel({ name, category, widthCm, depthCm, heightCm, color, material, imageUrl, forceProcedural = false }) {
   const wM = ((widthCm  || 80)  / 100).toFixed(3)
   const dM = ((depthCm  || 60)  / 100).toFixed(3)
   const hM = ((heightCm || 75)  / 100).toFixed(3)
 
+  const routingSection = forceProcedural
+    ? 'ROUTING OVERRIDE: strategy = "procedural" — skip routing analysis, always generate components.'
+    : `── ROUTING DECISION ──────────────────────────────────────────────────────────
+Analyze this product's ACTUAL visual appearance (see the image) to decide the 3D generation strategy:
+  "primitive":   flat or purely geometric — no real 3D volume (rugs, flat artwork only)
+  "procedural":  this specific product has boxy, canonical geometry — rectangular panels, standard
+                 leg configurations, no curves or artistic detail — primitives would look accurate
+  "mesh":        DEFAULT — has curves, organic form, distinctive silhouette, decorative detail, or
+                 a box/cylinder approximation would obviously look wrong. When uncertain, use "mesh".`
+
   const prompt = `You are a 3D furniture modeller for a Three.js interior-design app.
-Create a detailed geometric model of this product using simple 3D primitives.
 
 Product: "${name}"
 Category: ${category || 'furniture'}
 Bounding box: ${wM}m wide (X) × ${hM}m tall (Y) × ${dM}m deep (Z)
 Primary colour: ${color || 'see image'}
 Material: ${material || 'see image'}
+
+${routingSection}
 
 COORDINATE SYSTEM
 - Origin = centre of bounding-box base, at floor level (Y = 0)
@@ -191,6 +202,11 @@ ALL shapes also have: "color" (#hex), "x" "y" "z" (position), "rx" "ry" "rz" (ro
 
 Respond with ONLY valid JSON — no markdown fences, no explanation:
 {
+  "routing": {
+    "strategy": "primitive" | "procedural" | "mesh",
+    "confidence_reason": "one sentence based on actual visual analysis",
+    "fallback_chain": ["mesh", "procedural"] or ["procedural"] or ["primitive"]
+  },
   "components": [
     { "shape": "box",      "color": "#hex", "x": 0, "y": 0, "z": 0, "rx": 0, "ry": 0, "rz": 0, "w": 0.0, "h": 0.0, "d": 0.0 },
     { "shape": "cylinder", "color": "#hex", "x": 0, "y": 0, "z": 0, "rx": 0, "ry": 0, "rz": 0, "rt": 0.0, "rb": 0.0, "len": 0.0 },
@@ -199,16 +215,38 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
   ]
 }
 
+IMPORTANT: If routing.strategy is "mesh" — include "routing" but OMIT "components" entirely.
+If strategy is "primitive" or "procedural" — include both "routing" and "components".
+
 REQUIREMENTS — read these carefully before generating:
 1. Use 10–25 components. More components = more accurate and beautiful result.
 2. Study the product image for exact shape, silhouette, and proportions. Do NOT produce a generic box.
 3. Every component must stay within the ${wM}×${hM}×${dM}m bounding box.
-4. Y positions: component base at Y=0 means it sits on the floor. A seat at leg-height Y=0.18 means the seat top is at Y=0.18+seatThickness.
+4. Y is the CENTRE of the component — NOT the base. Formula: y_center = y_base + (half_height).
+   Examples: a leg of height 0.18m resting on the floor → y=0.09.
+   A seat box 0.08m thick sitting on top of 0.18m legs → y=0.18+0.04=0.22.
+   Always ensure at least one component has its base at Y=0 (touching the floor).
 5. Use the image colours — assign different #hex colours to different parts (upholstery vs frame vs legs vs cushions etc.)
 6. Legs/feet: tapered cylinders (rt < rb), positioned at the four corners.
 7. Upholstered parts: model seat, back, and arms as separate components with slightly different shades.
 8. Distinctive visual details from the image must be included (curved back, metal base, sled legs, open shelves, etc.)
-9. Be accurate to THIS specific product, not a generic version of the category.`
+9. Be accurate to THIS specific product, not a generic version of the category.
+
+CATEGORY ASSEMBLY RULES for "${category || 'furniture'}":
+- sofa/armchair: 4 tapered cylinder legs at corners (y=half_leg_h), seat box on top of legs, back box behind seat, 2 arm boxes on sides, cushion boxes on seat and back
+- dining_table/desk/coffee_table/side_table: 4 legs at corners, 1 tabletop box (thin, full width), optional stretcher bars between legs
+- lamp_floor/lamp_arc/lamp_tripod: heavy weighted cylinder base at floor level, tall thin cylinder pole stacked above, sphere or flattened cylinder shade at top. Ensure base sits at Y=0.
+- lamp_table/lamp_desk: compact proportions for sitting on a surface. Flat wide base (cylinder, low), stem/body, shade on top. Keep total height proportional to the bounding box — do NOT model the table, only the lamp.
+- bookshelf/wardrobe/dresser: back panel box (full w×h×thin), 2 side panel boxes, N horizontal shelf boxes spaced evenly in Y, optional base legs
+- bed: COMPOUND SYSTEM — model the complete bed as a single unit:
+  1. Headboard panel (tall, at -Z edge, full width)
+  2. Footboard panel (shorter, at +Z edge, full width) — omit if modern/platform style
+  3. 2 side rail boxes connecting head to foot
+  4. Mattress (thick soft box filling the frame interior, sitting on top of rails, ~0.20-0.25m thick)
+  5. 2 pillows at headboard end (squashed rounded boxes or flattened cylinders, ~0.55×0.35×0.12m each, resting on mattress slightly overlapping the headboard)
+  6. Duvet/comforter layer (thin wide box covering top 65% of mattress, slightly wider than mattress for natural overhang at sides, ~0.04m thick)
+  Colours: use warm neutrals — white/cream for pillows and sheets, a muted complementary tone for the duvet/comforter, wood or upholstery tones for the frame.
+- dining_chair/bar_stool: 4 legs, seat box, optional back uprights + back rest box`
 
   const parts = []
 
@@ -244,7 +282,13 @@ REQUIREMENTS — read these carefully before generating:
       if (!match) throw new Error(`Non-JSON response from ${modelName}: ${text.slice(0, 200)}`)
       parsed = JSON.parse(match[0])
     }
-    return parsed.components || []
+    const routing = parsed.routing || {}
+    return {
+      strategy:         routing.strategy         || 'procedural',
+      confidenceReason: routing.confidence_reason || '',
+      fallbackChain:    routing.fallback_chain    || ['procedural'],
+      components:       parsed.components         || null,
+    }
   })
 }
 

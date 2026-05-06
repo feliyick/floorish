@@ -100,10 +100,59 @@ function makePlaceholder(w = 1, d = 0.8, h = 0.8) {
   return g
 }
 
+// ── Component validator / post-processor ─────────────────────────────────────
+// Corrects floating models and out-of-bounds components from AI output.
+// Operates in place on a copy — does not mutate the store array.
+function componentBottom(c) {
+  switch (c.shape) {
+    case 'cylinder': return (c.y || 0) - (Math.max(0.005, c.len ?? c.h ?? 0.1)) / 2
+    case 'sphere':   return (c.y || 0) - Math.max(0.005, c.r || 0.05)
+    case 'torus':    return (c.y || 0) - Math.max(0.002, c.tube || 0.02)
+    default:         return (c.y || 0) - (Math.max(0.005, c.h  || 0.1)) / 2
+  }
+}
+
+function componentTop(c) {
+  switch (c.shape) {
+    case 'cylinder': return (c.y || 0) + (Math.max(0.005, c.len ?? c.h ?? 0.1)) / 2
+    case 'sphere':   return (c.y || 0) + Math.max(0.005, c.r || 0.05)
+    case 'torus':    return (c.y || 0) + Math.max(0.002, c.tube || 0.02)
+    default:         return (c.y || 0) + (Math.max(0.005, c.h  || 0.1)) / 2
+  }
+}
+
+function validateComponents(components, wM, hM, dM) {
+  if (!components || components.length === 0) return components
+
+  // 1. Find the lowest bottom edge across all components
+  const minBottom = Math.min(...components.map(componentBottom))
+
+  // 2. If the whole model floats above the floor (minBottom > 1cm), shift everything down
+  const yShift = minBottom > 0.01 ? -minBottom : 0
+
+  return components.map((c) => {
+    const shifted = yShift !== 0 ? { ...c, y: (c.y || 0) + yShift } : c
+
+    // 3. Clamp XZ within bounding box (using half-extents)
+    const halfW = wM / 2
+    const halfD = dM / 2
+    const clampedX = Math.max(-halfW, Math.min(halfW, shifted.x || 0))
+    const clampedZ = Math.max(-halfD, Math.min(halfD, shifted.z || 0))
+
+    // 4. Clamp Y so top doesn't exceed bounding box height
+    const top = componentTop(shifted)
+    const yOvershoot = top > hM ? top - hM : 0
+    const clampedY = (shifted.y || 0) - yOvershoot
+
+    return { ...shifted, x: clampedX, y: clampedY, z: clampedZ }
+  })
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 export function createFurnitureGroup(item) {
   if (item.modelComponents && item.modelComponents.length > 0) {
-    return renderModelComponents(item.modelComponents)
+    const validated = validateComponents(item.modelComponents, item.widthM, item.heightM, item.depthM)
+    return renderModelComponents(validated)
   }
   return makePlaceholder(item.widthM, item.depthM, item.heightM)
 }
@@ -125,10 +174,10 @@ const CATEGORY_KEYWORDS = {
   wardrobe:     ['wardrobe','armoire','closet'],
   tv_stand:     ['tv stand','media console','entertainment unit'],
   bed:          ['bed','bedframe'],
-  lamp_floor:   ['floor lamp'],
+  lamp_floor:   ['floor lamp','standing lamp','torchiere'],
   lamp_arc:     ['arc lamp'],
-  lamp_table:   ['table lamp','desk lamp'],
-  lamp_pendant: ['pendant','hanging lamp'],
+  lamp_pendant: ['pendant','hanging lamp','pendant light'],
+  lamp_table:   ['table lamp','desk lamp','bedside lamp','accent lamp'],
   chandelier:   ['chandelier'],
   mirror_floor: ['floor mirror','leaning mirror'],
   mirror_wall:  ['wall mirror','mirror'],
@@ -144,5 +193,7 @@ export function guessCategory(name = '') {
   for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
     if (keywords.some((kw) => lower.includes(kw))) return cat
   }
+  // Generic "lamp" or "light" defaults to table lamp (specific types matched above)
+  if (lower.includes('lamp') || lower.includes('light')) return 'lamp_table'
   return 'generic'
 }

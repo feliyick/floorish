@@ -1,203 +1,180 @@
-import { useRef, useEffect, useCallback, Suspense } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { OrbitControls, PerspectiveCamera, OrthographicCamera, TransformControls } from '@react-three/drei'
+import { useRef, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { nearestWallAngle } from '../../utils/placementUtils'
+import { Canvas, useThree } from '@react-three/fiber'
+import { OrbitControls, PerspectiveCamera, OrthographicCamera } from '@react-three/drei'
 import * as THREE from 'three'
 import Lighting from './Lighting'
 import Room from './Room'
 import FurnitureItem from './FurnitureModel'
 import useStore from '../../store/useStore'
 
-// WASD fly — only active when nothing is selected.
-// Moves camera + orbit target together so OrbitControls stays consistent.
-function FlyControls({ orbitRef, speed = 0.07 }) {
-  const { camera } = useThree()
-  const keys = useRef({})
+// ── Drag-to-move ─────────────────────────────────────────────────────────────
+// Raycasts against the Y=0 floor plane via native pointer events.
+// No visible gizmo — just direct drag like The Sims.
+function useDragToMove({ orbitRef, objectMap, onCommit }) {
+  const { camera, gl } = useThree()
+  const isDragging  = useRef(false)
+  const hasMoved    = useRef(false)
+  const dragOffset  = useRef({ x: 0, z: 0 })
+  // Drag plane — defaults to Y=0 (floor) but raised to the object's Y for
+  // surface-placed items (lamps on tables, etc.) so XZ tracking stays correct.
+  const dragPlane   = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0))
+  const raycaster   = useRef(new THREE.Raycaster())
+  const hitPoint    = useRef(new THREE.Vector3())
+  const onCommitRef = useRef(onCommit)
+  useEffect(() => { onCommitRef.current = onCommit }, [onCommit])
+
+  const getFloorPoint = useCallback((clientX, clientY) => {
+    const el   = gl.domElement
+    const rect = el.getBoundingClientRect()
+    const nx   =  ((clientX - rect.left) / rect.width)  * 2 - 1
+    const ny   = -((clientY - rect.top)  / rect.height)  * 2 + 1
+    raycaster.current.setFromCamera({ x: nx, y: ny }, camera)
+    return raycaster.current.ray.intersectPlane(dragPlane.current, hitPoint.current)
+      ? hitPoint.current.clone()
+      : null
+  }, [camera, gl])
+
+  // Called from FurnitureItem's onPointerDown; point is the R3F e.point (3D hit)
+  const startDrag = useCallback((id, point) => {
+    const obj = objectMap.current[id]
+    if (obj) {
+      dragOffset.current.x = point.x - obj.position.x
+      dragOffset.current.z = point.z - obj.position.z
+      // Set drag plane height to the object's Y so elevated items track correctly
+      dragPlane.current.constant = -(obj.position.y || 0)
+    }
+    isDragging.current = true
+    hasMoved.current   = false
+    if (orbitRef.current) orbitRef.current.enabled = false
+  }, [objectMap, orbitRef])
 
   useEffect(() => {
-    const skip = (e) => ['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)
-    const onDown = (e) => { if (!skip(e)) keys.current[e.code] = true }
-    const onUp   = (e) => { keys.current[e.code] = false }
-    window.addEventListener('keydown', onDown)
-    window.addEventListener('keyup',   onUp)
-    return () => {
-      window.removeEventListener('keydown', onDown)
-      window.removeEventListener('keyup',   onUp)
+    const el = gl.domElement
+
+    const onMove = (e) => {
+      if (!isDragging.current) return
+      const { selectedId } = useStore.getState()
+      if (!selectedId) return
+      const obj = objectMap.current[selectedId]
+      if (!obj) return
+      const pt = getFloorPoint(e.clientX, e.clientY)
+      if (!pt) return
+      obj.position.x = pt.x - dragOffset.current.x
+      obj.position.z = pt.z - dragOffset.current.z
+      // Y is preserved — surface-placed items stay at their elevation
+      hasMoved.current = true
     }
-  }, [])
 
-  useFrame(() => {
-    // Stop flying while a furniture item is selected (WASD = gizmo mode shortcuts)
-    if (useStore.getState().selectedId) return
-    const k = keys.current
-    if (!k.KeyW && !k.KeyS && !k.KeyA && !k.KeyD) return
+    const onUp = () => {
+      if (!isDragging.current) return
+      isDragging.current = false
+      if (orbitRef.current) orbitRef.current.enabled = true
+      if (hasMoved.current) onCommitRef.current()
+      hasMoved.current = false
+    }
 
-    const forward = new THREE.Vector3()
-    camera.getWorldDirection(forward)
-    forward.y = 0
-    forward.normalize()
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup',   onUp)
+    return () => {
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup',   onUp)
+    }
+  }, [gl, getFloorPoint, objectMap, orbitRef])
 
-    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
-
-    const delta = new THREE.Vector3()
-    if (k.KeyW) delta.addScaledVector(forward,  speed)
-    if (k.KeyS) delta.addScaledVector(forward, -speed)
-    if (k.KeyA) delta.addScaledVector(right,   -speed)
-    if (k.KeyD) delta.addScaledVector(right,    speed)
-
-    camera.position.add(delta)
-    if (orbitRef.current) orbitRef.current.target.add(delta)
-  })
-
-  return null
+  return startDrag
 }
 
+// ── Scene contents (lives inside <Canvas>) ────────────────────────────────────
 function SceneContents({ orbitRef }) {
-  const furniture    = useStore((s) => s.furniture)
-  const selectedId   = useStore((s) => s.selectedId)
+  const furniture       = useStore((s) => s.furniture)
+  const selectedId      = useStore((s) => s.selectedId)
   const clearSelected   = useStore((s) => s.clearSelected)
   const removeFurniture = useStore((s) => s.removeFurniture)
   const rotateFurniture = useStore((s) => s.rotateFurniture)
-  const updateFurniture = useStore((s) => s.updateFurniture)
-  const transformMode   = useStore((s) => s.transformMode)
 
-  const objectMap  = useRef({})   // id → Three.js group
-  const transformRef = useRef()
+  const objectMap = useRef({})
 
   const onMount = useCallback((id, group) => {
     objectMap.current[id] = group
   }, [])
 
-  const selectedObject = selectedId ? objectMap.current[selectedId] : null
-  const selectedItem   = furniture.find((f) => f.id === selectedId)
+  // ── Commit drag: grid snap + room bounds clamp + wall alignment ───────────
+  // Reads fresh state via getState() — safe to call from native event handlers.
+  const commitDrag = useCallback(() => {
+    const { selectedId, furniture, floorDims, walls, updateFurniture } = useStore.getState()
+    if (!selectedId) return
+    const obj  = objectMap.current[selectedId]
+    if (!obj) return
+    const item = furniture.find((f) => f.id === selectedId)
+    if (!item) return
 
-  // ── Keyboard shortcuts ──────────────────────────────────────────────────────
+    const snapGrid = (v) => Math.round(v / 0.1) * 0.1
+    const CELL_SIZE = 0.2
+    const halfW = (floorDims.w * CELL_SIZE) / 2
+    const halfD = (floorDims.h * CELL_SIZE) / 2
+    const itemW = item.widthM ?? 0.5
+    const itemD = item.depthM ?? 0.5
+
+    const snappedX = Math.max(-halfW + itemW / 2, Math.min(halfW - itemW / 2, snapGrid(obj.position.x)))
+    const snappedZ = Math.max(-halfD + itemD / 2, Math.min(halfD - itemD / 2, snapGrid(obj.position.z)))
+    const currentY = obj.position.y || 0  // preserve surface elevation
+
+    const wallAngle     = nearestWallAngle(snappedX, snappedZ, walls, floorDims, 0.5)
+    const finalRotation = wallAngle !== null ? wallAngle : obj.rotation.y
+
+    updateFurniture(selectedId, {
+      position: [snappedX, currentY, snappedZ],
+      rotation: finalRotation,
+    })
+    obj.position.set(snappedX, currentY, snappedZ)
+    obj.rotation.set(0, finalRotation, 0)
+  }, [objectMap])
+
+  const startDrag = useDragToMove({ orbitRef, objectMap, onCommit: commitDrag })
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     const onKey = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return
-      // W/E/R only switch gizmo mode when a furniture item is selected;
-      // when nothing is selected these keys are used for WASD camera fly.
-      if (selectedId) {
-        const { setTransformMode } = useStore.getState()
-        if (e.key === 'w' || e.key === 'W') setTransformMode('translate')
-        if (e.key === 'e' || e.key === 'E') setTransformMode('rotate')
-        if (e.key === 'r' || e.key === 'R') setTransformMode('scale')
-        if (e.key === 'q' || e.key === 'Q') rotateFurniture(selectedId)
-        if (e.key === 'Delete' || e.key === 'Backspace') removeFurniture(selectedId)
-        if (e.key === 'Escape') clearSelected()
-      }
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
+      if (!selectedId) return
+      if (e.key === 'q' || e.key === 'Q') rotateFurniture(selectedId)
+      if (e.key === 'Delete' || e.key === 'Backspace') removeFurniture(selectedId)
+      if (e.key === 'Escape') clearSelected()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selectedId])
-
-  // ── Configure visible gizmo axes per mode ──────────────────────────────────
-  // translate → XZ only (no vertical lift)
-  // rotate    → Y only (spin on floor)
-  // scale     → all axes
-  useEffect(() => {
-    if (!transformRef.current) return
-    const tc = transformRef.current
-    if (transformMode === 'translate') {
-      tc.showX = true; tc.showY = false; tc.showZ = true
-    } else if (transformMode === 'rotate') {
-      tc.showX = false; tc.showY = true; tc.showZ = false
-    } else {
-      tc.showX = true; tc.showY = true; tc.showZ = true
-    }
-  }, [transformMode, selectedObject]) // re-run when TC mounts (selectedObject → TC remounts)
-
-  // ── Disable orbit while dragging ────────────────────────────────────────────
-  const onTransformMouseDown = useCallback(() => {
-    if (orbitRef.current) orbitRef.current.enabled = false
-  }, [orbitRef])
-
-  // ── Sync final transform to store on drag END (not during drag) ─────────────
-  // This is the critical fix: syncing during onChange caused React to re-render
-  // FurnitureItem with the old position, fighting TransformControls each frame.
-  const onTransformMouseUp = useCallback(() => {
-    if (orbitRef.current) orbitRef.current.enabled = true
-    if (!selectedId || !selectedObject) return
-
-    const pos = selectedObject.position
-    const rot = selectedObject.rotation
-
-    if (transformMode === 'scale' && selectedItem) {
-      const sx = selectedObject.scale.x
-      const sy = selectedObject.scale.y
-      const sz = selectedObject.scale.z
-      updateFurniture(selectedId, {
-        position: [pos.x, 0, pos.z],
-        rotation: rot.y,
-        widthM:  Math.max(0.1, selectedItem.widthM  * sx),
-        depthM:  Math.max(0.1, selectedItem.depthM  * sz),
-        heightM: Math.max(0.1, selectedItem.heightM * sy),
-      })
-      // Reset scale to 1 — new dims are baked into the geometry via store
-      selectedObject.scale.set(1, 1, 1)
-    } else {
-      updateFurniture(selectedId, {
-        position: [pos.x, 0, pos.z],
-        rotation: rot.y,
-      })
-      // Keep furniture on the floor
-      selectedObject.position.y = 0
-    }
-  }, [orbitRef, selectedId, selectedObject, transformMode, selectedItem, updateFurniture])
+  }, [selectedId, rotateFurniture, removeFurniture, clearSelected])
 
   return (
     <>
-      <FlyControls orbitRef={orbitRef} />
       <Lighting />
       <Room />
       {furniture.map((item) => (
-        <FurnitureItem key={item.id} item={item} onMount={onMount} />
+        <FurnitureItem key={item.id} item={item} onMount={onMount} onDragStart={startDrag} />
       ))}
-
-      {selectedObject && (
-        <TransformControls
-          ref={transformRef}
-          object={selectedObject}
-          mode={transformMode}
-          size={0.75}
-          onMouseDown={onTransformMouseDown}
-          onMouseUp={onTransformMouseUp}
-          // No onChange — syncing live caused the React re-render fight
-        />
-      )}
-
-      {/* Deselect on floor click — onClick (not onPointerDown) so TC drags
-          (which involve pointer movement) never accidentally deselect */}
-      <mesh
-        rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, -0.001, 0]}
-        onClick={(e) => { e.stopPropagation(); clearSelected() }}
-      >
-        <planeGeometry args={[40, 40]} />
-        <meshBasicMaterial visible={false} />
-      </mesh>
     </>
   )
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
 export default function Scene3D() {
   const cameraMode      = useStore((s) => s.cameraMode)
   const floorDims       = useStore((s) => s.floorDims)
-  const transformMode   = useStore((s) => s.transformMode)
-  const setTransformMode = useStore((s) => s.setTransformMode)
   const selectedId      = useStore((s) => s.selectedId)
+  const clearSelected   = useStore((s) => s.clearSelected)
+  const removeFurniture = useStore((s) => s.removeFurniture)
+  const rotateFurniture = useStore((s) => s.rotateFurniture)
+  const selectedItem    = useStore((s) => s.furniture.find((f) => f.id === s.selectedId))
   const orbitRef = useRef()
 
   const roomDiag = Math.sqrt((floorDims.w * 0.2) ** 2 + (floorDims.h * 0.2) ** 2)
 
-  const MODES = [
-    { key: 'translate', label: 'Move',   hotkey: 'W' },
-    { key: 'rotate',    label: 'Rotate', hotkey: 'E' },
-    { key: 'scale',     label: 'Scale',  hotkey: 'R' },
-  ]
-
   return (
     <div className="three-canvas w-full h-full relative">
-      <Canvas shadows dpr={[1, 2]} gl={{ antialias: true, toneMapping: 3 }}>
+      <Canvas shadows dpr={[1, 2]} gl={{ antialias: true, toneMapping: 3 }}
+        onPointerMissed={() => clearSelected()}
+      >
         {cameraMode === 'orbit' ? (
           <>
             <PerspectiveCamera makeDefault fov={50}
@@ -225,31 +202,43 @@ export default function Scene3D() {
         </Suspense>
       </Canvas>
 
-      {/* Transform mode toolbar */}
-      <div className="absolute top-3 right-3 flex flex-col gap-1.5 pointer-events-auto">
-        <div className="flex gap-1 bg-cream/90 backdrop-blur-sm rounded-xl p-1 shadow-warm border border-cream-dark">
-          {MODES.map(({ key, label, hotkey }) => (
-            <button key={key} onClick={() => setTransformMode(key)}
-              title={`${label} (${hotkey})`}
-              className={`px-3 py-1.5 rounded-lg text-xs font-sans font-semibold transition-all ${
-                transformMode === key ? 'bg-terra text-cream shadow-warm-sm' : 'text-walnut hover:bg-cream-dark'
-              }`}
-            >
-              {label}<kbd className="ml-1.5 text-[10px] font-mono opacity-60">{hotkey}</kbd>
-            </button>
-          ))}
+      {/* ── Selection action bar ── */}
+      {selectedId && selectedItem && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-cream/95 backdrop-blur-sm rounded-xl px-3 py-2 shadow-warm border border-cream-dark pointer-events-auto">
+          <span className="text-xs font-sans font-semibold text-walnut truncate max-w-[160px]">
+            {selectedItem.name}
+          </span>
+          <div className="w-px h-4 bg-cream-dark mx-0.5" />
+          <button
+            onClick={() => rotateFurniture(selectedId)}
+            title="Rotate 90° (Q)"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-sans text-walnut hover:bg-cream-dark transition-all"
+          >
+            <span className="text-sm leading-none">↺</span> Rotate
+          </button>
+          <button
+            onClick={() => { removeFurniture(selectedId) }}
+            title="Remove (Delete)"
+            className="px-2.5 py-1 rounded-lg text-xs font-sans text-walnut/70 hover:bg-red-50 hover:text-red-600 transition-all"
+          >
+            Remove
+          </button>
+          <div className="w-px h-4 bg-cream-dark mx-0.5" />
+          <button
+            onClick={() => clearSelected()}
+            title="Deselect (Esc)"
+            className="px-1.5 py-1 rounded-lg text-[11px] text-walnut/40 hover:text-walnut/70 hover:bg-cream-dark transition-all"
+          >
+            ✕
+          </button>
         </div>
-        {selectedId && (
-          <p className="text-[10px] font-sans text-walnut/50 text-center">
-            Q snap 90° · Del remove · Esc deselect
-          </p>
-        )}
-      </div>
+      )}
 
+      {/* ── Bottom hint ── */}
       {!selectedId && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none">
           <span className="text-xs text-walnut/60 bg-cream/80 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-warm-sm font-sans">
-            Click furniture to select · W Move · E Rotate · R Scale · Q snap 90°
+            Click to select · Drag to move · Scroll to zoom
           </span>
         </div>
       )}

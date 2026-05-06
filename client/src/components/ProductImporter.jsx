@@ -56,7 +56,9 @@ const TO_CM = { cm: 1, mm: 0.1, m: 100, in: 2.54, ft: 30.48 }
 
 export default function ProductImporter({ onClose }) {
   const addProduct            = useStore((s) => s.addProduct)
+  const updateProduct         = useStore((s) => s.updateProduct)
   const resolveGeneratedModel = useStore((s) => s.resolveGeneratedModel)
+  const resolveMeshUrl        = useStore((s) => s.resolveMeshUrl)
 
   const [step, setStep] = useState(STEPS.URL)
   const [url, setUrl]   = useState('')
@@ -153,23 +155,68 @@ export default function ProductImporter({ onClose }) {
     addProduct(productData)
     onClose()
 
-    // Generate 3D model in background — does not block the user
-    try {
-      const res = await axios.post('/api/generate-model', {
-        name:     productData.name,
-        category: productData.category,
-        widthCm:  productData.widthCm,
-        depthCm:  productData.depthCm,
-        heightCm: productData.heightCm,
-        color:    productData.color,
-        material: productData.material,
-        imageUrl: productData.imageUrl,
-      })
-      resolveGeneratedModel(productId, res.data.components)
-    } catch (err) {
-      console.error('Model generation failed:', err.message)
-      resolveGeneratedModel(productId, null)
-    }
+    // ── Step 1: Ask Gemini to route + optionally generate primitive components ──
+    // Fire-and-forget — does not block the user.
+    ;(async () => {
+      try {
+        const res = await axios.post('/api/generate-model', {
+          name:     productData.name,
+          category: productData.category,
+          widthCm:  productData.widthCm,
+          depthCm:  productData.depthCm,
+          heightCm: productData.heightCm,
+          color:    productData.color,
+          material: productData.material,
+          imageUrl: productData.imageUrl,
+        })
+
+        const { strategy, confidenceReason, fallbackChain, components } = res.data
+
+        // Store routing metadata on the product (may already be placed in scene)
+        updateProduct(productId, { geometryType: strategy, generationMeta: { confidenceReason, fallbackChain } })
+
+        if (strategy !== 'mesh') {
+          // Primitive or procedural — components are ready
+          resolveGeneratedModel(productId, components)
+        } else {
+          // ── Step 2: Route to Meshy AI for organic/complex assets ──
+          try {
+            const meshRes = await axios.post('/api/generate-mesh', {
+              name:     productData.name,
+              category: productData.category,
+              widthCm:  productData.widthCm,
+              depthCm:  productData.depthCm,
+              heightCm: productData.heightCm,
+              color:    productData.color,
+              material: productData.material,
+            })
+            resolveMeshUrl(productId, meshRes.data.meshUrl)
+          } catch (meshErr) {
+            console.warn('Meshy generation failed, falling back to procedural:', meshErr.message)
+            // Fallback: re-ask Gemini but force procedural components
+            try {
+              const fallbackRes = await axios.post('/api/generate-model', {
+                name:          productData.name,
+                category:      productData.category,
+                widthCm:       productData.widthCm,
+                depthCm:       productData.depthCm,
+                heightCm:      productData.heightCm,
+                color:         productData.color,
+                material:      productData.material,
+                imageUrl:      productData.imageUrl,
+                forceProcedural: true,
+              })
+              resolveGeneratedModel(productId, fallbackRes.data.components)
+            } catch {
+              resolveGeneratedModel(productId, null)
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Model generation failed:', err.message)
+        resolveGeneratedModel(productId, null)
+      }
+    })()
   }
 
   const isMissing = (field) => missingFields.includes(field)
