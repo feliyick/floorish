@@ -8,7 +8,7 @@ const { generateMesh } = require('../ai/meshyClient')
 const glbCache = new Map()
 
 router.post('/', async (req, res) => {
-  const { name, category, widthCm, depthCm, heightCm, color, material } = req.body
+  const { name, category, widthCm, depthCm, heightCm, color, material, imageUrl } = req.body
 
   if (!name) return res.status(400).json({ error: 'Product name is required.' })
   if (!process.env.MESHY_API_KEY) {
@@ -18,7 +18,7 @@ router.post('/', async (req, res) => {
 
   console.log(`[Meshy] Starting mesh generation for "${name}" (${category}) ${widthCm}×${heightCm}×${depthCm}cm`)
   try {
-    const { glbUrl } = await generateMesh({ name, category, widthCm, depthCm, heightCm, color, material })
+    const { glbUrl } = await generateMesh({ name, category, widthCm, depthCm, heightCm, color, material, imageUrl })
     console.log(`[Meshy] ✓ Successfully generated mesh for "${name}"`)
 
     // Download the GLB and cache it so we can serve it locally (avoids CORS)

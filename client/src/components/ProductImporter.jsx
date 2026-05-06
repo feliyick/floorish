@@ -190,6 +190,7 @@ export default function ProductImporter({ onClose }) {
               heightCm: productData.heightCm,
               color:    productData.color,
               material: productData.material,
+              imageUrl: productData.imageUrl,
             })
             console.log(`[Meshy] ✓ Mesh URL received for "${productData.name}"`)
             resolveMeshUrl(productId, meshRes.data.meshUrl)

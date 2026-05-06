@@ -43,6 +43,13 @@ function MeshAsset({ item }) {
       c.scale.set(item.widthM / size.x, item.heightM / size.y, item.depthM / size.z)
       console.log(`[GLB] Scaled to item dimensions: ${item.widthM.toFixed(2)}×${item.heightM.toFixed(2)}×${item.depthM.toFixed(2)}m`)
     }
+    // Recompute bounding box after scaling and ground the model so bottom sits at y=0
+    const scaledBox = new THREE.Box3().setFromObject(c)
+    const yOffset = -scaledBox.min.y
+    if (Math.abs(yOffset) > 0.001) {
+      c.position.y += yOffset
+      console.log(`[GLB] Grounding offset: shifted y by ${yOffset.toFixed(4)}m (was ${scaledBox.min.y.toFixed(4)} below floor)`)
+    }
     c.traverse((child) => {
       if (child.isMesh) {
         child.castShadow    = true
