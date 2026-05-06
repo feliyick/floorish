@@ -1,0 +1,108 @@
+{
+  "_comment": "Test fixture products. Add entries here to build up the regression suite. Each entry is imported directly into the product library (bypassing the scraper) and then model generation is triggered as normal. Fields match the store product shape.",
+  "_fields": {
+    "name":      "string — full product name",
+    "category":  "string — must match a CATEGORY_OPTIONS value",
+    "url":       "string | null — original product page (for reference only)",
+    "imageUrl":  "string | null — direct image URL used for AI model generation",
+    "widthCm":   "number — width in centimetres",
+    "depthCm":   "number — depth in centimetres",
+    "heightCm":  "number — height in centimetres",
+    "color":     "string — hex or colour word",
+    "material":  "string | null",
+    "priceUSD":  "number | null"
+  },
+  "products": [
+    {
+      "name": "SÖDERHAMN Armchair",
+      "category": "armchair",
+      "url": null,
+      "imageUrl": null,
+      "widthCm": 83,
+      "depthCm": 93,
+      "heightCm": 73,
+      "color": "#8B7355",
+      "material": "Finnsta white",
+      "priceUSD": 329,
+      "_notes": "Low-profile modern armchair. Good baseline — simple silhouette, prominent seat cushion."
+    },
+    {
+      "name": "KALLAX Shelf Unit 4x4",
+      "category": "bookshelf",
+      "url": null,
+      "imageUrl": null,
+      "widthCm": 147,
+      "depthCm": 39,
+      "heightCm": 147,
+      "color": "#F5F0E8",
+      "material": "white",
+      "priceUSD": 219,
+      "_notes": "Grid shelving — tests whether AI generates open compartments vs solid box."
+    },
+    {
+      "name": "LACK Side Table",
+      "category": "side_table",
+      "url": null,
+      "imageUrl": null,
+      "widthCm": 55,
+      "depthCm": 55,
+      "heightCm": 45,
+      "color": "#1A1A1A",
+      "material": "black",
+      "priceUSD": 19,
+      "_notes": "Tiny low table. Tests small-item placeholder visibility and leg detail."
+    },
+    {
+      "name": "HEKTAR Floor Lamp",
+      "category": "lamp_floor",
+      "url": null,
+      "imageUrl": null,
+      "widthCm": 35,
+      "depthCm": 35,
+      "heightCm": 163,
+      "color": "#4A4A4A",
+      "material": "metal",
+      "priceUSD": 89,
+      "_notes": "Tall narrow item — tests aspect ratio extremes and bounding box accuracy."
+    },
+    {
+      "name": "KIVIK 3-seat Sofa",
+      "category": "sofa",
+      "url": null,
+      "imageUrl": null,
+      "widthCm": 228,
+      "depthCm": 95,
+      "heightCm": 83,
+      "color": "#C4A882",
+      "material": "Tibbleby beige",
+      "priceUSD": 1099,
+      "_notes": "Wide sofa — tests large footprint items and multi-cushion upholstery."
+    },
+    {
+      "name": "LISABO Dining Table",
+      "category": "dining_table",
+      "url": null,
+      "imageUrl": null,
+      "widthCm": 140,
+      "depthCm": 78,
+      "heightCm": 74,
+      "color": "#C4A265",
+      "material": "ash veneer",
+      "priceUSD": 249,
+      "_notes": "Rectangular table — tests standard table-top + leg geometry."
+    },
+    {
+      "name": "FRIHETEN Sleeper Sectional",
+      "category": "sofa",
+      "url": null,
+      "imageUrl": null,
+      "widthCm": 230,
+      "depthCm": 151,
+      "heightCm": 66,
+      "color": "#3D3D3D",
+      "material": "Skiftebo dark grey",
+      "priceUSD": 799,
+      "_notes": "L-shaped sectional — hardest case for bounding box compliance."
+    }
+  ]
+}
