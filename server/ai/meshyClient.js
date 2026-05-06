@@ -36,7 +36,7 @@ async function createMeshTask({ name, category, widthCm, depthCm, heightCm, colo
     console.log(`[Meshy] Using image-to-3D mode with image: ${imageUrl.slice(0, 80)}...`)
     const res = await axios.post(IMAGE_TO_3D, {
       image_url:        imageUrl,
-      ai_model:         'meshy-6',
+      ai_model:         'meshy-5',
       enable_pbr:       true,
       should_remesh:    true,
       topology:         'quad',
