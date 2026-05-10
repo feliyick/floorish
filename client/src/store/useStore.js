@@ -19,15 +19,37 @@ const useStore = create(
       scale: 30,
       floorDims: { w: 28, h: 22 },
 
+      draftWalls:   [],
+      isDraftMode:  false,
+
       setWalls:     (walls)     => set({ walls }),
       addWall:      (wall)      => set((s) => ({ walls: [...s.walls, { id: uuid(), ...wall }] })),
       removeWall:   (id)        => set((s) => ({ walls: s.walls.filter((w) => w.id !== id) })),
+      updateWall:   (id, patch) => set((s) => ({ walls: s.walls.map((w) => w.id === id ? { ...w, ...patch } : w) })),
       clearWalls:   ()          => set({ walls: [] }),
       setScale:     (scale)     => set({ scale }),
       setFloorDims: (floorDims) => set({ floorDims }),
 
+      setDraftWalls:      (walls)  => set({ draftWalls: walls, isDraftMode: true }),
+      confirmDraft:       ()       => set((s) => ({
+        walls: [...s.walls, ...s.draftWalls],
+        draftWalls: [],
+        isDraftMode: false,
+      })),
+      confirmSingleDraft: (id) => set((s) => {
+        const wall = s.draftWalls.find((w) => w.id === id)
+        if (!wall) return s
+        return {
+          walls: [...s.walls, wall],
+          draftWalls: s.draftWalls.filter((w) => w.id !== id),
+          isDraftMode: s.draftWalls.length > 1,
+        }
+      }),
+      discardDraft:       ()       => set({ draftWalls: [], isDraftMode: false }),
+
       // ── 3D Furniture ────────────────────────────────────────────────────────
       furniture: [],
+      deletedFurniture: [],
       selectedId: null,
 
       addFurniture: (item) =>
@@ -41,10 +63,34 @@ const useStore = create(
         })),
 
       removeFurniture: (id) =>
+        set((s) => {
+          const item = s.furniture.find((f) => f.id === id)
+          return {
+            furniture: s.furniture.filter((f) => f.id !== id),
+            selectedId: s.selectedId === id ? null : s.selectedId,
+            deletedFurniture: item
+              ? [...s.deletedFurniture, { ...item, deletedAt: Date.now() }]
+              : s.deletedFurniture,
+          }
+        }),
+
+      restoreFurniture: (id) =>
+        set((s) => {
+          const item = s.deletedFurniture.find((f) => f.id === id)
+          if (!item) return s
+          const { deletedAt, ...restored } = item
+          return {
+            deletedFurniture: s.deletedFurniture.filter((f) => f.id !== id),
+            furniture: [...s.furniture, restored],
+          }
+        }),
+
+      permanentlyDelete: (id) =>
         set((s) => ({
-          furniture: s.furniture.filter((f) => f.id !== id),
-          selectedId: s.selectedId === id ? null : s.selectedId,
+          deletedFurniture: s.deletedFurniture.filter((f) => f.id !== id),
         })),
+
+      clearDeletedFurniture: () => set({ deletedFurniture: [] }),
 
       setSelected:   (id) => set({ selectedId: id }),
       clearSelected: ()   => set({ selectedId: null }),
@@ -152,21 +198,25 @@ const useStore = create(
       cameraMode:    'orbit',
       sidebarTab:    'products',
       transformMode: 'translate',
+      displayUnit:   'cm',
 
       setMode:          (mode)          => set({ mode }),
       setActiveTool:    (activeTool)    => set({ activeTool }),
       setCameraMode:    (cameraMode)    => set({ cameraMode }),
       setSidebarTab:    (sidebarTab)    => set({ sidebarTab }),
       setTransformMode: (transformMode) => set({ transformMode }),
+      setDisplayUnit:   (displayUnit)   => set({ displayUnit }),
     }),
     {
       name: 'floorish-state',
       // Persist data but not transient UI state
       partialize: (s) => ({
-        walls:     s.walls,
-        floorDims: s.floorDims,
-        furniture: s.furniture,
-        products:  s.products,
+        walls:            s.walls,
+        floorDims:        s.floorDims,
+        furniture:        s.furniture,
+        deletedFurniture: s.deletedFurniture,
+        products:         s.products,
+        displayUnit:      s.displayUnit,
       }),
     }
   )

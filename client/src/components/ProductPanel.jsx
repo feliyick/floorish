@@ -2,7 +2,7 @@ import { useState } from 'react'
 import axios from 'axios'
 import useStore from '../store/useStore'
 import ProductImporter from './ProductImporter'
-import FloorPlanEditor from './FloorPlanEditor'
+import FloorPlanSidebar from './FloorPlanSidebar'
 import fixtureData from '../test/fixtures.json'
 
 // ── Status helpers ────────────────────────────────────────────────────────────
@@ -108,6 +108,14 @@ function ProductCard({ product }) {
             {product.material && (
               <p className="text-[11px] text-walnut/50 font-sans mt-0.5">{product.material}</p>
             )}
+            {product.geometryType && (
+              <p className="text-[10px] text-walnut/40 font-sans mt-1">
+                Strategy: {product.geometryType}
+                {product.generationMeta?.confidenceReason && (
+                  <span className="text-walnut/30"> — {product.generationMeta.confidenceReason}</span>
+                )}
+              </p>
+            )}
 
             <div className="flex gap-1.5 mt-2">
               <button
@@ -124,6 +132,74 @@ function ProductCard({ product }) {
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Deleted items section ─────────────────────────────────────────────────────
+function DeletedSection() {
+  const deletedFurniture    = useStore((s) => s.deletedFurniture)
+  const restoreFurniture    = useStore((s) => s.restoreFurniture)
+  const permanentlyDelete   = useStore((s) => s.permanentlyDelete)
+  const clearDeletedFurniture = useStore((s) => s.clearDeletedFurniture)
+  const [expanded, setExpanded] = useState(false)
+
+  if (deletedFurniture.length === 0) return null
+
+  return (
+    <div className="mx-3 mb-3 shrink-0">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 w-full text-left py-1.5"
+      >
+        <svg
+          className={`w-3 h-3 text-walnut/40 transition-transform ${expanded ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+        <span className="text-[10px] font-sans font-semibold text-walnut/50 uppercase tracking-wider">
+          Recently deleted ({deletedFurniture.length})
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="flex flex-col gap-1 mt-1">
+          {deletedFurniture.slice().reverse().map((f) => (
+            <div
+              key={f.id}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-cream border border-cream-dark"
+            >
+              <div
+                className="w-2.5 h-2.5 rounded-full shrink-0 border border-walnut/20 opacity-50"
+                style={{ backgroundColor: f.color || '#C4622D' }}
+              />
+              <span className="text-xs font-sans text-walnut/60 truncate flex-1">
+                {f.name}
+              </span>
+              <button
+                onClick={() => restoreFurniture(f.id)}
+                className="shrink-0 px-2 py-0.5 bg-sage/15 text-sage rounded-md text-[10px] font-sans font-semibold hover:bg-sage/25 transition-colors"
+              >
+                Restore
+              </button>
+              <button
+                onClick={() => permanentlyDelete(f.id)}
+                className="shrink-0 px-1.5 py-0.5 text-walnut/40 hover:text-red-500 text-[10px] font-sans transition-colors"
+                title="Delete permanently"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <button
+            onClick={clearDeletedFurniture}
+            className="text-[10px] font-sans text-walnut/40 hover:text-walnut/60 mt-0.5 text-left px-2.5 transition-colors"
+          >
+            Clear all
+          </button>
         </div>
       )}
     </div>
@@ -348,13 +424,16 @@ export default function ProductPanel() {
               )}
             </div>
           )}
+
+          {/* ── Deleted items ── */}
+          <DeletedSection />
         </div>
       )}
 
       {/* Floor plan tab */}
       {sidebarTab === 'floorplan' && (
         <div className="flex-1 min-h-0 overflow-hidden">
-          <FloorPlanEditor />
+          <FloorPlanSidebar />
         </div>
       )}
     </div>

@@ -1,4 +1,4 @@
-import { useRef, useMemo, useEffect, Suspense } from 'react'
+import { useRef, useMemo, useEffect, useState, Suspense } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
@@ -6,6 +6,8 @@ import { createFurnitureGroup } from '../../utils/furnitureFactory'
 import useStore from '../../store/useStore'
 
 const FLOOR_OFFSET_Y = 0.001
+const SNAP_DEG = 25
+const TICK_COUNT = Math.ceil(360 / SNAP_DEG)
 
 // Spins above the bounding box while the AI model is still generating.
 function GeneratingRing({ width, depth, height }) {
@@ -62,17 +64,67 @@ function MeshAsset({ item }) {
   return <primitive object={cloned} />
 }
 
-function SelectionRing({ width, depth }) {
+function RotationRing({ width, depth, onRotationDragStart, itemId }) {
+  const [hovered, setHovered] = useState(false)
   const r = Math.max(width, depth) / 2 + 0.06
+
+  // Tick marks at SNAP_DEG increments — radial line segments
+  const tickLines = useMemo(() => {
+    const lines = []
+    for (let i = 0; i < TICK_COUNT; i++) {
+      const angle = (i * SNAP_DEG * Math.PI) / 180
+      const cos = Math.cos(angle)
+      const sin = Math.sin(angle)
+      const innerR = r - 0.035
+      const outerR = r + 0.035
+      const points = [
+        new THREE.Vector3(cos * innerR, FLOOR_OFFSET_Y + 0.001, sin * innerR),
+        new THREE.Vector3(cos * outerR, FLOOR_OFFSET_Y + 0.001, sin * outerR),
+      ]
+      const geometry = new THREE.BufferGeometry().setFromPoints(points)
+      lines.push(
+        <lineSegments key={i} geometry={geometry}>
+          <lineBasicMaterial color="#C4622D" transparent opacity={0.6} />
+        </lineSegments>
+      )
+    }
+    return lines
+  }, [r])
+
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, FLOOR_OFFSET_Y, 0]}>
-      <torusGeometry args={[r, 0.025, 8, 40]} />
-      <meshToonMaterial color="#C4622D" emissive="#C4622D" emissiveIntensity={0.6} />
-    </mesh>
+    <group>
+      {/* Main visible ring */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, FLOOR_OFFSET_Y, 0]}>
+        <torusGeometry args={[r, hovered ? 0.038 : 0.025, 8, 48]} />
+        <meshToonMaterial
+          color={hovered ? '#E8845A' : '#C4622D'}
+          emissive={hovered ? '#E8845A' : '#C4622D'}
+          emissiveIntensity={hovered ? 0.9 : 0.6}
+        />
+      </mesh>
+
+      {/* Invisible wider hit area for easier grabbing */}
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, FLOOR_OFFSET_Y, 0]}
+        onPointerEnter={(e) => { e.stopPropagation(); setHovered(true) }}
+        onPointerLeave={() => setHovered(false)}
+        onPointerDown={(e) => {
+          e.stopPropagation()
+          onRotationDragStart?.(itemId, e)
+        }}
+      >
+        <torusGeometry args={[r, 0.09, 8, 48]} />
+        <meshBasicMaterial transparent opacity={0} />
+      </mesh>
+
+      {/* Snap tick marks — visible on hover */}
+      {hovered && tickLines}
+    </group>
   )
 }
 
-export default function FurnitureItem({ item, onMount, onDragStart }) {
+export default function FurnitureItem({ item, onMount, onDragStart, onRotationDragStart }) {
   const groupRef             = useRef()
   const primitiveContainerRef = useRef()
   const selectedId  = useStore((s) => s.selectedId)
@@ -158,7 +210,7 @@ export default function FurnitureItem({ item, onMount, onDragStart }) {
         </Suspense>
       )}
 
-      {isSelected   && <SelectionRing width={item.widthM} depth={item.depthM} />}
+      {isSelected   && <RotationRing width={item.widthM} depth={item.depthM} itemId={item.id} onRotationDragStart={onRotationDragStart} />}
       {isGenerating && <GeneratingRing width={item.widthM} depth={item.depthM} height={item.heightM} />}
     </group>
   )

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { useRef, useEffect, useCallback, useMemo, useState, Suspense } from 'react'
 import { nearestWallAngle } from '../../utils/placementUtils'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, PerspectiveCamera, OrthographicCamera } from '@react-three/drei'
@@ -7,6 +7,87 @@ import Lighting from './Lighting'
 import Room from './Room'
 import FurnitureItem from './FurnitureModel'
 import useStore from '../../store/useStore'
+
+const SNAP_RAD = (25 * Math.PI) / 180  // 25 degrees in radians
+
+// ── Drag-to-rotate ──────────────────────────────────────────────────────────
+// Computes screen-space angle from object center to pointer, applies delta as Y rotation.
+function useRotationDrag({ orbitRef, objectMap, onCommit, onAngleChange }) {
+  const { camera, gl } = useThree()
+  const isRotating    = useRef(false)
+  const startAngle    = useRef(0)
+  const startRotation = useRef(0)
+
+  // Project object's world position to screen coordinates
+  const getScreenCenter = useCallback((obj) => {
+    const worldPos = new THREE.Vector3()
+    obj.getWorldPosition(worldPos)
+    worldPos.project(camera)
+    const rect = gl.domElement.getBoundingClientRect()
+    return {
+      x: (worldPos.x * 0.5 + 0.5) * rect.width + rect.left,
+      y: (-worldPos.y * 0.5 + 0.5) * rect.height + rect.top,
+    }
+  }, [camera, gl])
+
+  const startRotationDrag = useCallback((id, event) => {
+    const obj = objectMap.current[id]
+    if (!obj) return
+    isRotating.current = true
+    startRotation.current = obj.rotation.y
+
+    // Compute initial angle from object screen center to pointer
+    const center = getScreenCenter(obj)
+    const nativeEvent = event.nativeEvent || event
+    startAngle.current = Math.atan2(
+      nativeEvent.clientY - center.y,
+      nativeEvent.clientX - center.x
+    )
+
+    if (orbitRef.current) orbitRef.current.enabled = false
+  }, [objectMap, orbitRef, getScreenCenter])
+
+  useEffect(() => {
+    const el = gl.domElement
+
+    const onMove = (e) => {
+      if (!isRotating.current) return
+      const { selectedId } = useStore.getState()
+      if (!selectedId) return
+      const obj = objectMap.current[selectedId]
+      if (!obj) return
+
+      const center = getScreenCenter(obj)
+      const currentAngle = Math.atan2(e.clientY - center.y, e.clientX - center.x)
+      let delta = currentAngle - startAngle.current
+
+      // Snap to 25-degree increments unless Shift held
+      if (!e.shiftKey) {
+        delta = Math.round(delta / SNAP_RAD) * SNAP_RAD
+      }
+
+      obj.rotation.y = startRotation.current - delta  // negative because screen Y is inverted
+      onAngleChange?.(Math.round((obj.rotation.y * 180) / Math.PI) % 360)
+    }
+
+    const onUp = () => {
+      if (!isRotating.current) return
+      isRotating.current = false
+      if (orbitRef.current) orbitRef.current.enabled = true
+      onAngleChange?.(null)
+      onCommit()
+    }
+
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+    return () => {
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+    }
+  }, [gl, getScreenCenter, objectMap, orbitRef, onCommit, onAngleChange])
+
+  return startRotationDrag
+}
 
 // ── Drag-to-move ─────────────────────────────────────────────────────────────
 // Raycasts against the Y=0 floor plane via native pointer events.
@@ -86,7 +167,7 @@ function useDragToMove({ orbitRef, objectMap, onCommit }) {
 }
 
 // ── Scene contents (lives inside <Canvas>) ────────────────────────────────────
-function SceneContents({ orbitRef }) {
+function SceneContents({ orbitRef, onAngleChange }) {
   const furniture       = useStore((s) => s.furniture)
   const selectedId      = useStore((s) => s.selectedId)
   const clearSelected   = useStore((s) => s.clearSelected)
@@ -133,10 +214,33 @@ function SceneContents({ orbitRef }) {
 
   const startDrag = useDragToMove({ orbitRef, objectMap, onCommit: commitDrag })
 
+  // ── Commit rotation: persist current Y rotation to store ────────────────
+  const commitRotation = useCallback(() => {
+    const { selectedId, updateFurniture } = useStore.getState()
+    if (!selectedId) return
+    const obj = objectMap.current[selectedId]
+    if (!obj) return
+    updateFurniture(selectedId, { rotation: obj.rotation.y })
+  }, [objectMap])
+
+  const startRotationDrag = useRotationDrag({
+    orbitRef, objectMap, onCommit: commitRotation, onAngleChange,
+  })
+
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     const onKey = (e) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
+
+      // Ctrl+Z / Cmd+Z: undo last delete (works even with no selection)
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        const { deletedFurniture, restoreFurniture } = useStore.getState()
+        if (deletedFurniture.length > 0) {
+          restoreFurniture(deletedFurniture[deletedFurniture.length - 1].id)
+        }
+        return
+      }
+
       if (!selectedId) return
       if (e.key === 'q' || e.key === 'Q') rotateFurniture(selectedId)
       if (e.key === 'Delete' || e.key === 'Backspace') removeFurniture(selectedId)
@@ -151,7 +255,7 @@ function SceneContents({ orbitRef }) {
       <Lighting />
       <Room />
       {furniture.map((item) => (
-        <FurnitureItem key={item.id} item={item} onMount={onMount} onDragStart={startDrag} />
+        <FurnitureItem key={item.id} item={item} onMount={onMount} onDragStart={startDrag} onRotationDragStart={startRotationDrag} />
       ))}
     </>
   )
@@ -167,6 +271,9 @@ export default function Scene3D() {
   const rotateFurniture = useStore((s) => s.rotateFurniture)
   const selectedItem    = useStore((s) => s.furniture.find((f) => f.id === s.selectedId))
   const orbitRef = useRef()
+
+  // Angle indicator during rotation drag (null when not dragging)
+  const [rotationAngle, setRotationAngle] = useState(null)
 
   const roomDiag = Math.sqrt((floorDims.w * 0.2) ** 2 + (floorDims.h * 0.2) ** 2)
 
@@ -198,9 +305,16 @@ export default function Scene3D() {
           </>
         )}
         <Suspense fallback={null}>
-          <SceneContents orbitRef={orbitRef} />
+          <SceneContents orbitRef={orbitRef} onAngleChange={setRotationAngle} />
         </Suspense>
       </Canvas>
+
+      {/* ── Rotation angle indicator ── */}
+      {rotationAngle !== null && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 bg-cream/95 backdrop-blur-sm rounded-lg px-3 py-1.5 shadow-warm border border-terra/30 pointer-events-none">
+          <span className="text-xs font-sans font-semibold text-terra">{((rotationAngle % 360) + 360) % 360}°</span>
+        </div>
+      )}
 
       {/* ── Selection action bar ── */}
       {selectedId && selectedItem && (
@@ -238,7 +352,7 @@ export default function Scene3D() {
       {!selectedId && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none">
           <span className="text-xs text-walnut/60 bg-cream/80 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-warm-sm font-sans">
-            Click to select · Drag to move · Scroll to zoom
+            Click to select · Drag to move · Drag ring to rotate · Scroll to zoom
           </span>
         </div>
       )}

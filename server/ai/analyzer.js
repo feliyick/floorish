@@ -161,13 +161,27 @@ Rules:
  * @param {{ name, category, widthCm, depthCm, heightCm, color, material, imageUrl }} product
  * @returns {Promise<Array>} components array for furnitureFactory renderer
  */
-async function generateFurnitureModel({ name, category, widthCm, depthCm, heightCm, color, material, imageUrl, forceProcedural = false }) {
+async function generateFurnitureModel({ name, category, widthCm, depthCm, heightCm, color, material, imageUrl, forceProcedural = false, forceStrategy = null }) {
+  // Backward compat: map legacy forceProcedural to forceStrategy
+  const effectiveStrategy = forceStrategy || (forceProcedural ? 'procedural' : null)
+
+  // If forceStrategy is 'mesh', skip Gemini entirely — caller will route to Meshy
+  if (effectiveStrategy === 'mesh') {
+    console.log(`[Analyzer] Routing override: strategy="mesh" — skipping Gemini, will use Meshy`)
+    return {
+      strategy: 'mesh',
+      confidenceReason: 'User override: mesh',
+      fallbackChain: ['procedural'],
+      components: null,
+    }
+  }
+
   const wM = ((widthCm  || 80)  / 100).toFixed(3)
   const dM = ((depthCm  || 60)  / 100).toFixed(3)
   const hM = ((heightCm || 75)  / 100).toFixed(3)
 
-  const routingSection = forceProcedural
-    ? 'ROUTING OVERRIDE: strategy = "procedural" — skip routing analysis, always generate components.'
+  const routingSection = effectiveStrategy
+    ? `ROUTING OVERRIDE: strategy = "${effectiveStrategy}" — skip routing analysis, always generate components.`
     : `── ROUTING DECISION ──────────────────────────────────────────────────────────
 Look at the product image carefully. Your job is to decide whether THIS SPECIFIC product can be
 accurately represented using simple geometric primitives (boxes, cylinders, spheres, tori), or

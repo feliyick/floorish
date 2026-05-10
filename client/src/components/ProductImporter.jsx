@@ -71,7 +71,7 @@ export default function ProductImporter({ onClose }) {
     name: '', category: 'generic', url: '',
     widthCm: '', depthCm: '', heightCm: '',
     color: '#C4622D', material: '', priceUSD: '',
-    imageUrl: '',
+    imageUrl: '', forceStrategy: null,
   })
 
   const handleField = (e) => {
@@ -150,6 +150,7 @@ export default function ProductImporter({ onClose }) {
       imageUrl: form.imageUrl,
       modelComponents: null,       // placeholder until AI is done
       modelGenerating: true,
+      forceStrategy: form.forceStrategy || null,
     }
 
     addProduct(productData)
@@ -160,16 +161,18 @@ export default function ProductImporter({ onClose }) {
     ;(async () => {
       console.log(`[Generate] Firing model generation for "${productData.name}" (${productData.category})`)
       console.log(`[Generate]   imageUrl: ${productData.imageUrl ? 'yes' : 'no'}`)
+      console.log(`[Generate]   forceStrategy: ${productData.forceStrategy || 'auto'}`)
       try {
         const res = await axios.post('/api/generate-model', {
-          name:     productData.name,
-          category: productData.category,
-          widthCm:  productData.widthCm,
-          depthCm:  productData.depthCm,
-          heightCm: productData.heightCm,
-          color:    productData.color,
-          material: productData.material,
-          imageUrl: productData.imageUrl,
+          name:          productData.name,
+          category:      productData.category,
+          widthCm:       productData.widthCm,
+          depthCm:       productData.depthCm,
+          heightCm:      productData.heightCm,
+          color:         productData.color,
+          material:      productData.material,
+          imageUrl:      productData.imageUrl,
+          forceStrategy: productData.forceStrategy || null,
         })
 
         const { strategy, confidenceReason, fallbackChain, components } = res.data
@@ -370,6 +373,36 @@ export default function ProductImporter({ onClose }) {
           <FieldInput label="Price (USD)" name="priceUSD" value={form.priceUSD} onChange={handleField} placeholder="e.g. 499" type="number" />
           <FieldInput label="Product URL (for reference)" name="url" value={form.url} onChange={handleField} placeholder="https://..." />
           <FieldInput label="Image URL" name="imageUrl" value={form.imageUrl} onChange={handleField} placeholder="https://..." />
+
+          {/* Generation strategy selector */}
+          <div>
+            <label className="block text-xs font-sans font-semibold text-walnut/80 mb-1.5">
+              3D Generation Method
+            </label>
+            <div className="flex gap-1.5">
+              {[
+                { key: null,           label: 'Auto' },
+                { key: 'procedural',   label: 'Procedural' },
+                { key: 'mesh',         label: 'Mesh (AI)' },
+              ].map(({ key, label }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, forceStrategy: key }))}
+                  className={`flex-1 py-1.5 rounded-lg text-[11px] font-sans font-medium transition-colors ${
+                    form.forceStrategy === key
+                      ? 'bg-terra text-cream shadow-warm-sm'
+                      : 'bg-cream border border-cream-dark text-walnut hover:bg-cream-dark'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-walnut/50 mt-1 leading-relaxed">
+              Auto lets AI choose. Procedural = geometric shapes. Mesh = high-fidelity AI model.
+            </p>
+          </div>
 
           <div className="flex gap-2 mt-1">
             <button
